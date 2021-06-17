@@ -31,24 +31,6 @@
         "type": "github"
       }
     },
-    "helix": {
-      "flake": false,
-      "locked": {
-        "lastModified": 1623545930,
-        "narHash": "sha256-14ASoYbxXHU/qPGctiUymb4fMRCoih9c7YujjxqEkdU=",
-        "ref": "master",
-        "rev": "9640ed1425f2db904fb42cd0c54dc6fbc05ca292",
-        "revCount": 821,
-        "submodules": true,
-        "type": "git",
-        "url": "https://github.com/helix-editor/helix.git"
-      },
-      "original": {
-        "submodules": true,
-        "type": "git",
-        "url": "https://github.com/helix-editor/helix.git"
-      }
-    },
     "nixCargoIntegration": {
       "inputs": {
         "devshell": "devshell",
@@ -90,7 +72,6 @@
     "root": {
       "inputs": {
         "flakeCompat": "flakeCompat",
-        "helix": "helix",
         "nixCargoIntegration": "nixCargoIntegration",
         "nixpkgs": "nixpkgs"
       }
