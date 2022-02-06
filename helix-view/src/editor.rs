@@ -421,6 +421,8 @@ pub enum GutterType {
     LineNumbers,
     /// Show one blank space
     Spacer,
+    /// Highlight local changes
+    GitDiff,
 }
 
 impl std::str::FromStr for GutterType {
@@ -631,6 +633,7 @@ pub struct Editor {
     pub macro_replaying: Vec<char>,
     pub language_servers: helix_lsp::Registry,
     pub diagnostics: BTreeMap<lsp::Url, Vec<(lsp::Diagnostic, OffsetEncoding)>>,
+    pub vcs_providers: helix_vcs::Registry,
 
     pub debugger: Option<dap::Client>,
     pub debugger_events: SelectAll<UnboundedReceiverStream<dap::Payload>>,
@@ -715,6 +718,7 @@ impl Editor {
             theme: theme_loader.default(),
             language_servers,
             diagnostics: BTreeMap::new(),
+            vcs_providers: helix_vcs::Registry::new(),
             debugger: None,
             debugger_events: SelectAll::new(),
             breakpoints: HashMap::new(),
@@ -1039,7 +1043,8 @@ impl Editor {
             let mut doc = Document::open(&path, None, Some(self.syn_loader.clone()))?;
 
             let _ = Self::launch_language_servers(&mut self.language_servers, &mut doc);
-
+            doc.set_version_control(self.vcs_providers.discover_from_path(&path));
+            doc.diff_with_vcs();
             self.new_document(doc)
         };
 
