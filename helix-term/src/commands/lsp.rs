@@ -22,6 +22,7 @@ use std::{
     borrow::Cow, cmp::Ordering, collections::BTreeMap, fmt::Write, path::PathBuf, sync::Arc,
 };
 
+// TODO extend this to support multiple language servers
 /// Gets the language server that is attached to a document, and
 /// if it's not active displays a status message. Using this macro
 /// in a context where the editor automatically queries the LSP
@@ -30,8 +31,8 @@ use std::{
 #[macro_export]
 macro_rules! language_server {
     ($editor:expr, $doc:expr) => {
-        match $doc.language_server() {
-            Some(language_server) => language_server,
+        match $doc.language_servers().first() {
+            Some(language_server) => &**language_server,
             None => {
                 $editor.set_status("Language server not active for current buffer");
                 return;
@@ -989,8 +990,8 @@ pub fn signature_help_impl(cx: &mut Context, invoked: SignatureHelpInvoked) {
     let (view, doc) = current!(cx.editor);
     let was_manually_invoked = invoked == SignatureHelpInvoked::Manual;
 
-    let language_server = match doc.language_server() {
-        Some(language_server) => language_server,
+    let language_server = match doc.language_servers().first() {
+        Some(language_server) => &**language_server,
         None => {
             // Do not show the message if signature help was invoked
             // automatically on backspace, trigger characters, etc.

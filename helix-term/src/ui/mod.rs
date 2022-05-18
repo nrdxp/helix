@@ -395,7 +395,9 @@ pub mod completers {
 
         let (_, doc) = current_ref!(editor);
 
-        let language_server = match doc.language_server() {
+        // TODO multiple language servers
+        let language_servers = doc.language_servers();
+        let language_server = match language_servers.first() {
             Some(language_server) => language_server,
             None => {
                 return vec![];

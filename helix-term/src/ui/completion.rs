@@ -261,7 +261,16 @@ impl Completion {
         doc: &Document,
         completion_item: lsp::CompletionItem,
     ) -> Option<CompletionItem> {
-        let language_server = doc.language_server()?;
+        // TODO support multiple language servers instead of taking the first language server
+        let language_server = doc.language_servers().first().map(|l| *l)?;
+        let completion_resolve_provider = language_server
+            .capabilities()
+            .completion_provider
+            .as_ref()?
+            .resolve_provider;
+        if completion_resolve_provider != Some(true) {
+            return None;
+        }
 
         let future = language_server.resolve_completion_item(completion_item)?;
         let response = helix_lsp::block_on(future);
@@ -333,7 +342,9 @@ impl Completion {
             _ => return false,
         };
 
-        let language_server = match doc!(cx.editor).language_server() {
+        // TODO multiple language servers
+        let language_servers = doc!(cx.editor).language_servers();
+        let language_server = match language_servers.first() {
             Some(language_server) => language_server,
             None => return false,
         };

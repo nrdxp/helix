@@ -1115,7 +1115,9 @@ fn lsp_workspace_command(
 
     let (_, doc) = current!(cx.editor);
 
-    let language_server = match doc.language_server() {
+    // TODO multiple language servers
+    let language_servers = doc.language_servers();
+    let language_server = match language_servers.first() {
         Some(language_server) => language_server,
         None => {
             cx.editor
@@ -1203,7 +1205,7 @@ fn lsp_restart(
         .collect();
 
     for document_id in document_ids_to_refresh {
-        cx.editor.refresh_language_server(document_id);
+        cx.editor.refresh_language_servers(document_id);
     }
 
     Ok(())
@@ -1527,7 +1529,7 @@ fn language(
     doc.detect_indent_and_line_ending();
 
     let id = doc.id();
-    cx.editor.refresh_language_server(id);
+    cx.editor.refresh_language_servers(id);
     Ok(())
 }
 
@@ -2127,7 +2129,7 @@ pub const TYPABLE_COMMAND_LIST: &[TypableCommand] = &[
         TypableCommand {
             name: "lsp-restart",
             aliases: &[],
-            doc: "Restarts the Language Server that is in use by the current doc",
+            doc: "Restarts the language servers used by the currently opened file",
             fun: lsp_restart,
             completer: None,
         },
