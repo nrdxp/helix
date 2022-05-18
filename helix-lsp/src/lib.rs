@@ -308,7 +308,7 @@ impl Notification {
 
 #[derive(Debug)]
 pub struct Registry {
-    inner: HashMap<LanguageId, (usize, Arc<Client>)>,
+    inner: HashMap<LanguageId, Vec<(usize, Arc<Client>)>>,
 
     counter: AtomicUsize,
     pub incoming: SelectAll<UnboundedReceiverStream<(usize, Call)>>,
@@ -330,62 +330,73 @@ impl Registry {
     }
 
     pub fn get_by_id(&self, id: usize) -> Option<&Client> {
-        self.inner
-            .values()
-            .find(|(client_id, _)| client_id == &id)
-            .map(|(_, client)| client.as_ref())
+        self.inner.values().find_map(|ls| {
+            ls.iter()
+                .find(|(client_id, _)| client_id == &id)
+                .map(|(_, client)| client.as_ref())
+        })
     }
 
-    pub fn restart(
-        &mut self,
-        language_config: &LanguageConfiguration,
-    ) -> Result<Option<Arc<Client>>> {
-        let config = match &language_config.language_server {
-            Some(config) => config,
-            None => return Ok(None),
-        };
+    pub fn restart(&mut self, lang_config: &LanguageConfiguration) -> Result<Vec<Arc<Client>>> {
+        let configs = &lang_config.language_servers;
 
-        let scope = language_config.scope.clone();
+        if configs.is_empty() {
+            return Ok(vec![]);
+        }
 
-        match self.inner.entry(scope) {
-            Entry::Vacant(_) => Ok(None),
+        match self.inner.entry(lang_config.scope.clone()) {
+            Entry::Vacant(_) => Ok(vec![]),
             Entry::Occupied(mut entry) => {
-                // initialize a new client
-                let id = self.counter.fetch_add(1, Ordering::Relaxed);
+                let clients = configs
+                    .iter()
+                    .map(|config| {
+                        // initialize a new client
+                        let id = self.counter.fetch_add(1, Ordering::Relaxed);
+                        let NewClient(client, incoming) = start_client(id, lang_config, config)?;
+                        self.incoming.push(UnboundedReceiverStream::new(incoming));
+                        Ok((id, client))
+                    })
+                    .collect::<Result<Vec<_>>>()?;
 
-                let NewClientResult(client, incoming) = start_client(id, language_config, config)?;
-                self.incoming.push(UnboundedReceiverStream::new(incoming));
-
-                entry.insert((id, client.clone()));
-
-                Ok(Some(client))
+                let result = Ok(clients.iter().map(|(_, c)| c.clone()).collect());
+                entry.insert(clients);
+                result
             }
         }
     }
 
-    pub fn get(&mut self, language_config: &LanguageConfiguration) -> Result<Option<Arc<Client>>> {
-        let config = match &language_config.language_server {
-            Some(config) => config,
-            None => return Ok(None),
-        };
+    pub fn get(&mut self, lang_config: &LanguageConfiguration) -> Result<Vec<Arc<Client>>> {
+        let configs = &lang_config.language_servers;
 
-        match self.inner.entry(language_config.scope.clone()) {
-            Entry::Occupied(entry) => Ok(Some(entry.get().1.clone())),
+        if configs.is_empty() {
+            return Ok(vec![]);
+        }
+
+        match self.inner.entry(lang_config.scope.clone()) {
+            Entry::Occupied(entry) => Ok(entry.get().iter().map(|(_, c)| c.clone()).collect()),
             Entry::Vacant(entry) => {
-                // initialize a new client
-                let id = self.counter.fetch_add(1, Ordering::Relaxed);
+                let clients = configs
+                    .iter()
+                    .map(|config| {
+                        // initialize a new client
+                        let id = self.counter.fetch_add(1, Ordering::Relaxed);
+                        let NewClient(client, incoming) = start_client(id, lang_config, config)?;
+                        self.incoming.push(UnboundedReceiverStream::new(incoming));
+                        Ok((id, client))
+                    })
+                    .collect::<Result<Vec<_>>>()?;
 
-                let NewClientResult(client, incoming) = start_client(id, language_config, config)?;
-                self.incoming.push(UnboundedReceiverStream::new(incoming));
-
-                entry.insert((id, client.clone()));
-                Ok(Some(client))
+                let result = Ok(clients.iter().map(|(_, c)| c.clone()).collect());
+                entry.insert(clients);
+                result
             }
         }
     }
 
     pub fn iter_clients(&self) -> impl Iterator<Item = &Arc<Client>> {
-        self.inner.values().map(|(_, client)| client)
+        self.inner
+            .values()
+            .flat_map(|cs| cs.iter().map(|(_, client)| client))
     }
 }
 
@@ -467,7 +478,7 @@ impl LspProgressMap {
     }
 }
 
-struct NewClientResult(Arc<Client>, UnboundedReceiver<(usize, Call)>);
+struct NewClient(Arc<Client>, UnboundedReceiver<(usize, Call)>);
 
 /// start_client takes both a LanguageConfiguration and a LanguageServerConfiguration to ensure that
 /// it is only called when it makes sense.
@@ -475,11 +486,11 @@ fn start_client(
     id: usize,
     config: &LanguageConfiguration,
     ls_config: &LanguageServerConfiguration,
-) -> Result<NewClientResult> {
+) -> Result<NewClient> {
     let (client, incoming, initialize_notify) = Client::start(
         &ls_config.command,
         &ls_config.args,
-        config.config.clone(),
+        ls_config.config.clone(),
         &config.roots,
         id,
         ls_config.timeout,
@@ -514,7 +525,7 @@ fn start_client(
         initialize_notify.notify_one();
     });
 
-    Ok(NewClientResult(client, incoming))
+    Ok(NewClient(client, incoming))
 }
 
 #[cfg(test)]
