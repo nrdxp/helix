@@ -1113,26 +1113,32 @@ fn lsp_workspace_command(
         return Ok(());
     }
 
-    let (_, doc) = current!(cx.editor);
+    let (options, language_server_id) = {
+        let doc = doc!(cx.editor);
 
-    // TODO multiple language servers
-    let language_servers = doc.language_servers();
-    let language_server = match language_servers.first() {
-        Some(language_server) => language_server,
-        None => {
-            cx.editor
-                .set_status("Language server not active for current buffer");
-            return Ok(());
-        }
-    };
+        // TODO multiple language servers
+        let language_servers = doc.language_servers();
+        let language_server = match language_servers.first() {
+            Some(language_server) => language_server,
+            None => {
+                cx.editor
+                    .set_status("Language server not active for current buffer");
+                return Ok(());
+            }
+        };
 
-    let options = match &language_server.capabilities().execute_command_provider {
-        Some(options) => options,
-        None => {
-            cx.editor
-                .set_status("Workspace commands are not supported for this language server");
-            return Ok(());
-        }
+        (
+            match &language_server.capabilities().execute_command_provider {
+                Some(options) => options,
+                None => {
+                    cx.editor.set_status(
+                        "Workspace commands are not supported for this language server",
+                    );
+                    return Ok(());
+                }
+            },
+            language_server.id(),
+        )
     };
     if args.is_empty() {
         let commands = options
@@ -1147,8 +1153,8 @@ fn lsp_workspace_command(
         let callback = async move {
             let call: job::Callback = Callback::EditorCompositor(Box::new(
                 move |_editor: &mut Editor, compositor: &mut Compositor| {
-                    let picker = ui::Picker::new(commands, (), |cx, command, _action| {
-                        execute_lsp_command(cx.editor, command.clone());
+                    let picker = ui::Picker::new(commands, (), move |cx, command, _action| {
+                        execute_lsp_command(cx.editor, language_server_id, command.clone());
                     });
                     compositor.push(Box::new(overlayed(picker)))
                 },
@@ -1161,6 +1167,7 @@ fn lsp_workspace_command(
         if options.commands.iter().any(|c| c == &command) {
             execute_lsp_command(
                 cx.editor,
+                language_server_id,
                 helix_lsp::lsp::Command {
                     title: command.clone(),
                     arguments: None,
