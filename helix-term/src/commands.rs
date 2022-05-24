@@ -50,7 +50,9 @@ use crate::{
     compositor::{self, Component, Compositor},
     job::Callback,
     keymap::ReverseKeymap,
-    ui::{self, overlay::overlayed, FilePicker, Picker, Popup, Prompt, PromptEvent},
+    ui::{
+        self, overlay::overlayed, CompletionItem, FilePicker, Picker, Popup, Prompt, PromptEvent,
+    },
 };
 
 use crate::job::{self, Jobs};
@@ -4069,6 +4071,8 @@ pub fn completion(cx: &mut Context) {
         None => return,
     };
 
+    let language_server_id = language_server.id();
+
     let offset_encoding = language_server.offset_encoding();
     let text = doc.text().slice(..);
     let cursor = doc.selection(view.id).primary().cursor(text);
@@ -4102,12 +4106,16 @@ pub fn completion(cx: &mut Context) {
             let items = match response {
                 Some(lsp::CompletionResponse::Array(items)) => items,
                 // TODO: do something with is_incomplete
-                Some(lsp::CompletionResponse::List(lsp::CompletionList {
-                    is_incomplete: _is_incomplete,
-                    items,
-                })) => items,
+                Some(lsp::CompletionResponse::List(lsp::CompletionList { items, .. })) => items,
                 None => Vec::new(),
-            };
+            }
+            .into_iter()
+            .map(|item| CompletionItem::LSP {
+                language_server_id,
+                item,
+                offset_encoding,
+            })
+            .collect::<Vec<_>>();
 
             if items.is_empty() {
                 // editor.set_error("No completion available");
@@ -4115,14 +4123,7 @@ pub fn completion(cx: &mut Context) {
             }
             let size = compositor.size();
             let ui = compositor.find::<ui::EditorView>().unwrap();
-            ui.set_completion(
-                editor,
-                items,
-                offset_encoding,
-                start_offset,
-                trigger_offset,
-                size,
-            );
+            ui.set_completion(editor, items, start_offset, trigger_offset, size);
         },
     );
 }

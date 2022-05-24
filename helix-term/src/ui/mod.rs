@@ -15,7 +15,7 @@ mod text;
 
 use crate::compositor::{Component, Compositor};
 use crate::job::{self, Callback};
-pub use completion::Completion;
+pub use completion::{Completion, CompletionItem};
 pub use editor::EditorView;
 pub use markdown::Markdown;
 pub use menu::Menu;

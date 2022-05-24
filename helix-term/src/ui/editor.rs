@@ -4,7 +4,7 @@ use crate::{
     job::{self, Callback},
     key,
     keymap::{KeymapResult, Keymaps},
-    ui::{Completion, ProgressSpinners},
+    ui::{Completion, CompletionItem, ProgressSpinners},
 };
 
 use helix_core::{
@@ -1058,14 +1058,12 @@ impl EditorView {
     pub fn set_completion(
         &mut self,
         editor: &mut Editor,
-        items: Vec<helix_lsp::lsp::CompletionItem>,
-        offset_encoding: helix_lsp::OffsetEncoding,
+        items: Vec<CompletionItem>,
         start_offset: usize,
         trigger_offset: usize,
         size: Rect,
     ) {
-        let mut completion =
-            Completion::new(editor, items, offset_encoding, start_offset, trigger_offset);
+        let mut completion = Completion::new(editor, items, start_offset, trigger_offset);
 
         if completion.is_empty() {
             // skip if we got no completion results
