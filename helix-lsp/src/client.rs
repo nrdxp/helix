@@ -28,6 +28,7 @@ use tokio::{
 #[derive(Debug)]
 pub struct Client {
     id: usize,
+    name: String,
     _process: Child,
     server_tx: UnboundedSender<Payload>,
     request_counter: AtomicU64,
@@ -48,6 +49,7 @@ impl Client {
         config: Option<Value>,
         root_markers: &[String],
         id: usize,
+        name: String,
         req_timeout: u64,
     ) -> Result<(Self, UnboundedReceiver<(usize, Call)>, Arc<Notify>)> {
         // Resolve path to the binary
@@ -93,6 +95,7 @@ impl Client {
 
         let client = Self {
             id,
+            name,
             _process: process,
             server_tx,
             request_counter: AtomicU64::new(0),
@@ -107,6 +110,10 @@ impl Client {
         };
 
         Ok((client, server_rx, initialize_notify))
+    }
+
+    pub fn name(&self) -> &String {
+        &self.name
     }
 
     pub fn id(&self) -> usize {
