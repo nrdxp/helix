@@ -2069,7 +2069,10 @@ mod test {
         "#,
         );
 
-        let loader = Loader::new(Configuration { language: vec![] });
+        let loader = Loader::new(Configuration {
+            language: vec![],
+            language_server: HashMap::new(),
+        });
         let language = get_language("Rust").unwrap();
 
         let query = Query::new(language, query_str).unwrap();
@@ -2128,7 +2131,10 @@ mod test {
         .map(String::from)
         .collect();
 
-        let loader = Loader::new(Configuration { language: vec![] });
+        let loader = Loader::new(Configuration {
+            language: vec![],
+            language_server: HashMap::new(),
+        });
 
         let language = get_language("Rust").unwrap();
         let config = HighlightConfiguration::new(
