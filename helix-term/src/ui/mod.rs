@@ -239,6 +239,7 @@ pub mod completers {
     use crate::ui::prompt::Completion;
     use fuzzy_matcher::skim::SkimMatcherV2 as Matcher;
     use fuzzy_matcher::FuzzyMatcher;
+    use helix_core::syntax::LanguageServerFeature;
     use helix_view::document::SCRATCH_BUFFER_NAME;
     use helix_view::theme;
     use helix_view::{editor::Config, Editor};
@@ -394,19 +395,14 @@ pub mod completers {
     pub fn lsp_workspace_command(editor: &Editor, input: &str) -> Vec<Completion> {
         let matcher = Matcher::default();
 
-        let (_, doc) = current_ref!(editor);
-
-        // TODO multiple language servers
-        let language_servers = doc.language_servers();
-        let language_server = match language_servers.first() {
-            Some(language_server) => language_server,
-            None => {
-                return vec![];
-            }
-        };
-
-        let options = match &language_server.capabilities().execute_command_provider {
-            Some(options) => options,
+        // find first language server that supports workspace commands
+        let language_servers =
+            doc!(editor).language_servers_with_feature(LanguageServerFeature::WorkspaceCommand);
+        let options = match language_servers
+            .iter()
+            .find_map(|ls| ls.capabilities().execute_command_provider.as_ref())
+        {
+            Some(id_options) => id_options,
             None => {
                 return vec![];
             }

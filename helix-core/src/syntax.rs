@@ -60,8 +60,11 @@ fn default_timeout() -> u64 {
 }
 
 #[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
 pub struct Configuration {
     pub language: Vec<LanguageConfiguration>,
+    #[serde(default)]
+    pub language_server: HashMap<String, LanguageServerConfiguration>,
 }
 
 impl Default for Configuration {
@@ -107,7 +110,7 @@ pub struct LanguageConfiguration {
     pub(crate) highlight_config: OnceCell<Option<Arc<HighlightConfiguration>>>,
     // tags_config OnceCell<> https://github.com/tree-sitter/tree-sitter/pull/583
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub language_servers: Vec<LanguageServerConfiguration>,
+    pub language_servers: Vec<LanguageServerFeatureConfiguation>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub indent: Option<IndentationConfiguration>,
 
@@ -198,6 +201,42 @@ impl<'de> Deserialize<'de> for FileType {
 
         deserializer.deserialize_any(FileTypeVisitor)
     }
+}
+
+#[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "kebab-case")]
+pub enum LanguageServerFeature {
+    Format,
+    GotoDefinition,
+    GotoTypeDefinition,
+    GotoReference,
+    GotoImplementation,
+    // Goto, use bitflags, combining previous Goto members?
+    SignatureHelp,
+    Hover,
+    DocumentHighlight,
+    Completion,
+    CodeAction,
+    WorkspaceCommand,
+    DocumentSymbols,
+    WorkspaceSymbols,
+    // Symbols, use bitflags, see above?
+    Diagnostics,
+    RenameSymbol,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(untagged, rename_all = "kebab-case", deny_unknown_fields)]
+pub enum LanguageServerFeatureConfiguation {
+    #[serde(rename_all = "kebab-case")]
+    Features {
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        only_features: Vec<LanguageServerFeature>,
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        except_features: Vec<LanguageServerFeature>,
+        name: String,
+    },
+    Simple(String),
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -548,6 +587,15 @@ impl LanguageConfiguration {
     }
 }
 
+impl LanguageServerFeatureConfiguation {
+    pub fn name(&self) -> &String {
+        match self {
+            LanguageServerFeatureConfiguation::Simple(name) => name,
+            LanguageServerFeatureConfiguation::Features { name, .. } => name,
+        }
+    }
+}
+
 // Expose loader as Lazy<> global since it's always static?
 
 #[derive(Debug)]
@@ -558,6 +606,8 @@ pub struct Loader {
     language_config_ids_by_suffix: HashMap<String, usize>,
     language_config_ids_by_shebang: HashMap<String, usize>,
 
+    language_server_configs: HashMap<String, LanguageServerConfiguration>,
+
     scopes: ArcSwap<Vec<String>>,
 }
 
@@ -565,6 +615,7 @@ impl Loader {
     pub fn new(config: Configuration) -> Self {
         let mut loader = Self {
             language_configs: Vec::new(),
+            language_server_configs: config.language_server,
             language_config_ids_by_extension: HashMap::new(),
             language_config_ids_by_suffix: HashMap::new(),
             language_config_ids_by_shebang: HashMap::new(),
@@ -680,6 +731,10 @@ impl Loader {
 
     pub fn language_configs(&self) -> impl Iterator<Item = &Arc<LanguageConfiguration>> {
         self.language_configs.iter()
+    }
+
+    pub fn language_server_configs(&self) -> &HashMap<String, LanguageServerConfiguration> {
+        &self.language_server_configs
     }
 
     pub fn set_scopes(&self, scopes: Vec<String>) {
@@ -2279,7 +2334,10 @@ mod test {
         "#,
         );
 
-        let loader = Loader::new(Configuration { language: vec![] });
+        let loader = Loader::new(Configuration {
+            language: vec![],
+            language_server: HashMap::new(),
+        });
         let language = get_language("rust").unwrap();
 
         let query = Query::new(language, query_str).unwrap();
@@ -2338,7 +2396,10 @@ mod test {
         .map(String::from)
         .collect();
 
-        let loader = Loader::new(Configuration { language: vec![] });
+        let loader = Loader::new(Configuration {
+            language: vec![],
+            language_server: HashMap::new(),
+        });
 
         let language = get_language("rust").unwrap();
         let config = HighlightConfiguration::new(
@@ -2441,7 +2502,10 @@ mod test {
     ) {
         let source = Rope::from_str(source);
 
-        let loader = Loader::new(Configuration { language: vec![] });
+        let loader = Loader::new(Configuration {
+            language: vec![],
+            language_server: HashMap::new(),
+        });
         let language = get_language(language_name).unwrap();
 
         let config = HighlightConfiguration::new(language, "", "", "").unwrap();

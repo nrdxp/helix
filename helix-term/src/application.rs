@@ -687,6 +687,19 @@ impl Application {
                         if let Some(doc) = doc {
                             let lang_conf = doc.language_config();
                             let text = doc.text();
+                            let language_server = doc
+                                .language_servers()
+                                .iter()
+                                .find(|l| l.id() == server_id)
+                                .copied()
+                                .unwrap();
+
+                            if !doc.language_server_supports_feature(
+                                language_server,
+                                syntax::LanguageServerFeature::Diagnostics,
+                            ) {
+                                return;
+                            }
 
                             let diagnostics = params
                                 .diagnostics

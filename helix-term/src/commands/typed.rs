@@ -1112,33 +1112,22 @@ fn lsp_workspace_command(
     if event != PromptEvent::Validate {
         return Ok(());
     }
-
-    let (options, language_server_id) = {
-        let doc = doc!(cx.editor);
-
-        // TODO multiple language servers
-        let language_servers = doc.language_servers();
-        let language_server = match language_servers.first() {
-            Some(language_server) => language_server,
-            None => {
-                cx.editor
-                    .set_status("Language server not active for current buffer");
-                return Ok(());
-            }
-        };
-
-        (
-            match &language_server.capabilities().execute_command_provider {
-                Some(options) => options,
-                None => {
-                    cx.editor.set_status(
-                        "Workspace commands are not supported for this language server",
-                    );
-                    return Ok(());
-                }
-            },
-            language_server.id(),
-        )
+    let doc = doc!(cx.editor);
+    let language_servers =
+        doc.language_servers_with_feature(LanguageServerFeature::WorkspaceCommand);
+    let (language_server_id, options) = match language_servers.iter().find_map(|ls| {
+        ls.capabilities()
+            .execute_command_provider
+            .as_ref()
+            .map(|options| (ls.id(), options))
+    }) {
+        Some(id_options) => id_options,
+        None => {
+            cx.editor.set_status(
+                "No active language servers for this document support workspace commands",
+            );
+            return Ok(());
+        }
     };
     if args.is_empty() {
         let commands = options
