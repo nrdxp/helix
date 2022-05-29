@@ -12,7 +12,7 @@ mod spinner;
 mod statusline;
 mod text;
 
-pub use completion::{Completion, CompletionItem};
+pub use completion::{Completion, CompletionItem, PathType};
 pub use editor::EditorView;
 pub use markdown::Markdown;
 pub use menu::Menu;
