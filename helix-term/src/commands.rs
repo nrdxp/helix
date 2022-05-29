@@ -53,7 +53,8 @@ use crate::{
     job::Callback,
     keymap::ReverseKeymap,
     ui::{
-        self, overlay::overlayed, CompletionItem, FilePicker, Picker, Popup, Prompt, PromptEvent,
+        self, overlay::overlayed, CompletionItem, FilePicker, PathType, Picker, Popup, Prompt,
+        PromptEvent,
     },
 };
 
@@ -3057,19 +3058,31 @@ pub mod insert {
         // if ch matches completion char, trigger completion
         let doc = doc_mut!(cx.editor);
         let language_servers = doc.language_servers_with_feature(LanguageServerFeature::Completion);
-        let trigger_completion = language_servers.iter().any(|ls| {
-            let capabilities = ls.capabilities();
+        let trigger_completion_ls_ids = language_servers
+            .iter()
+            .filter_map(|ls| {
+                let capabilities = ls.capabilities();
 
-            // TODO: what if trigger is multiple chars long
-            matches!(&capabilities.completion_provider, Some(lsp::CompletionOptions {
-                    trigger_characters: Some(triggers),
-                    ..
-                }) if triggers.iter().any(|trigger| trigger.contains(ch)))
-        });
+                // TODO: what if trigger is multiple chars long
+                match &capabilities.completion_provider {
+                    Some(lsp::CompletionOptions {
+                        trigger_characters: Some(triggers),
+                        ..
+                    }) if triggers.iter().any(|trigger| trigger.contains(ch)) => Some(ls.id()),
+                    _ => None,
+                }
+            })
+            .collect::<Vec<_>>();
 
-        if trigger_completion {
+        if !trigger_completion_ls_ids.is_empty() || ch == '/' {
             cx.editor.clear_idle_timer();
-            super::completion(cx);
+            // TODO path for windows
+            if ch == '/' {
+                super::completion_path(cx)
+            }
+            for id in trigger_completion_ls_ids {
+                super::completion_lsp(cx, id)
+            }
         }
     }
 
@@ -4067,23 +4080,12 @@ fn remove_primary_selection(cx: &mut Context) {
     doc.set_selection(view.id, selection);
 }
 
-pub fn completion(cx: &mut Context) {
-    // TODO completion starts to get ugly...
-    // maybe think about something like completion provider and separate completion-state into helix-view?
-    let clear_completion = async move {
-        let call = job::Callback::EditorCompositor(Box::new(
-            move |editor: &mut Editor, compositor: &mut Compositor| {
-                let ui = compositor.find::<ui::EditorView>().unwrap();
-                ui.clear_completion(editor);
-            },
-        ));
-        Ok(call)
-    };
-    cx.jobs.callback(clear_completion);
-
-    if let Err(e) = helix_lsp::block_on(cx.jobs.finish(cx.editor, None)) {
-        return cx.editor.set_status(format!("{e}"));
-    };
+pub fn completion_lsp(cx: &mut Context, language_server_id: usize) {
+    let language_server = cx
+        .editor
+        .language_servers
+        .get_by_id(language_server_id)
+        .unwrap();
 
     use helix_lsp::{lsp, util::pos_to_lsp_pos};
 
@@ -4102,53 +4104,149 @@ pub fn completion(cx: &mut Context) {
     let offset = iter.take_while(|ch| chars::char_is_word(*ch)).count();
     let start_offset = cursor.saturating_sub(offset);
 
-    let mut requests = Vec::new();
+    let offset_encoding = language_server.offset_encoding();
 
-    for language_server in doc.language_servers_with_feature(LanguageServerFeature::Completion) {
-        let language_server_id = language_server.id();
+    let pos = pos_to_lsp_pos(doc.text(), cursor, offset_encoding);
 
-        let offset_encoding = language_server.offset_encoding();
+    let future = match language_server.completion(doc.identifier(), pos, None) {
+        Some(future) => future,
+        None => return,
+    };
+    cx.callback(
+        future,
+        move |editor, compositor, response: Option<lsp::CompletionResponse>| {
+            if editor.mode != Mode::Insert {
+                // we're not in insert mode anymore
+                return;
+            }
 
-        let pos = pos_to_lsp_pos(doc.text(), cursor, offset_encoding);
+            let items = match response {
+                Some(lsp::CompletionResponse::Array(items)) => items,
+                // TODO: do something with is_incomplete
+                Some(lsp::CompletionResponse::List(lsp::CompletionList { items, .. })) => items,
+                None => Vec::new(),
+            }
+            .into_iter()
+            .map(|item| CompletionItem::LSP {
+                language_server_id,
+                item: Box::new(item),
+                offset_encoding,
+            })
+            .collect::<Vec<_>>();
 
-        if let Some(future) = language_server.completion(doc.identifier(), pos, None) {
-            requests.push((future, language_server_id, offset_encoding));
-        }
-    }
+            if items.is_empty() {
+                // editor.set_error("No completion available");
+                return;
+            }
+            let size = compositor.size();
+            let ui = compositor.find::<ui::EditorView>().unwrap();
+            ui.set_or_extend_completion(editor, items, start_offset, trigger_offset, size);
+        },
+    );
+}
 
-    for (future, language_server_id, offset_encoding) in requests {
-        cx.callback(
-            future,
-            move |editor, compositor, response: Option<lsp::CompletionResponse>| {
+pub fn completion_path(cx: &mut Context) {
+    let (view, doc) = current!(cx.editor);
+
+    let text = doc.text().slice(..);
+    let cursor = doc.selection(view.id).primary().cursor(text);
+    let cur_line = text.char_to_line(cursor);
+    let begin_line = text.line_to_char(cur_line);
+    let line_until_cursor = text.slice(begin_line..cursor).to_string();
+    // TODO find a good regex for most use cases (especially Windows, which is not yet covered...)
+    // currently only one path match per line is possible in unix
+    static PATH_REGEX: Lazy<Regex> = Lazy::new(|| Regex::new(r"((?:/|\./).*)$").unwrap());
+
+    // TODO: trigger_offset should be the cursor offset but we also need a starting offset from where we want to apply
+    // completion filtering. For example logger.te| should filter the initial suggestion list with "te".
+
+    use helix_core::chars;
+    let mut iter = text.chars_at(cursor);
+    iter.reverse();
+    let offset = iter.take_while(|ch| chars::char_is_word(*ch)).count();
+
+    let trigger_offset = cursor;
+    let start_offset = cursor.saturating_sub(offset);
+
+    let callback = async move {
+        let call = job::Callback::EditorCompositor(Box::new(
+            move |editor: &mut Editor, compositor: &mut Compositor| {
                 if editor.mode != Mode::Insert {
                     // we're not in insert mode anymore
                     return;
                 }
-
-                let items = match response {
-                    Some(lsp::CompletionResponse::Array(items)) => items,
-                    // TODO: do something with is_incomplete
-                    Some(lsp::CompletionResponse::List(lsp::CompletionList { items, .. })) => items,
-                    None => Vec::new(),
-                }
-                .into_iter()
-                .map(|item| CompletionItem::LSP {
-                    language_server_id,
-                    item,
-                    offset_encoding,
-                })
-                .collect::<Vec<_>>();
+                // read dir for a possibly matched path
+                let items = PATH_REGEX
+                    .find(&line_until_cursor)
+                    .and_then(|m| {
+                        let mut path = PathBuf::from(m.as_str());
+                        if path.starts_with(".") {
+                            path = std::env::current_dir().unwrap().join(path);
+                        }
+                        std::fs::read_dir(path).ok().map(|rd| {
+                            rd.filter_map(|re| re.ok())
+                                .filter_map(|re| {
+                                    re.metadata().ok().map(|m| CompletionItem::Path {
+                                        path: re.path(),
+                                        permissions: m.permissions(),
+                                        path_type: if m.is_file() {
+                                            PathType::File
+                                        } else if m.is_dir() {
+                                            PathType::Dir
+                                        } else if m.is_symlink() {
+                                            PathType::Symlink
+                                        } else {
+                                            PathType::Unknown
+                                        },
+                                    })
+                                })
+                                .collect::<Vec<_>>()
+                        })
+                    })
+                    .unwrap_or_default();
 
                 if items.is_empty() {
-                    // editor.set_error("No completion available");
                     return;
                 }
                 let size = compositor.size();
                 let ui = compositor.find::<ui::EditorView>().unwrap();
                 ui.set_or_extend_completion(editor, items, start_offset, trigger_offset, size);
             },
-        );
+        ));
+        Ok(call)
+    };
+    cx.jobs.callback(callback);
+}
+
+pub fn completion(cx: &mut Context) {
+    // TODO completion starts to get ugly...
+    // maybe think about something like completion provider and separate completion-state into helix-view?
+    let clear_completion = async move {
+        let call = job::Callback::EditorCompositor(Box::new(
+            move |editor: &mut Editor, compositor: &mut Compositor| {
+                let ui = compositor.find::<ui::EditorView>().unwrap();
+                ui.clear_completion(editor);
+            },
+        ));
+        Ok(call)
+    };
+    cx.jobs.callback(clear_completion);
+
+    if let Err(e) = helix_lsp::block_on(cx.jobs.finish(cx.editor, None)) {
+        return cx.editor.set_status(format!("{e}"));
+    };
+
+    let language_server_ids = doc!(cx.editor)
+        .language_servers_with_feature(LanguageServerFeature::Completion)
+        .iter()
+        .map(|ls| ls.id())
+        .collect::<Vec<_>>(); // for the borrow checker...
+
+    for id in language_server_ids {
+        completion_lsp(cx, id)
     }
+
+    completion_path(cx);
 }
 
 // comments
