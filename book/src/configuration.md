@@ -48,6 +48,7 @@ on unix operating systems.
 | `cursorcolumn` | Highlight all columns with a cursor. | `false` |
 | `gutters` | Gutters to display: Available are `diagnostics` and `diff` and `line-numbers` and `spacer`, note that `diagnostics` also includes other features like breakpoints, 1-width padding will be inserted if gutters is non-empty | `["diagnostics", "spacer", "line-numbers", "spacer", "diff"]` |
 | `auto-completion` | Enable automatic pop up of auto-completion. | `true` |
+| `path-completion` | Enable filepath completion, show files and directories if a path at the cursor was recognized. | `true` |
 | `auto-format` | Enable automatic formatting on save. | `true` |
 | `auto-save` | Enable automatic saving on focus moving away from Helix. Requires [focus event support](https://github.com/helix-editor/helix/wiki/Terminal-Support) from your terminal. | `false` |
 | `idle-timeout` | Time in milliseconds since last keypress before idle timers trigger. Used for autocompletion, set to 0 for instant. | `400` |
