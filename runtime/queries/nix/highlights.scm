@@ -83,7 +83,8 @@
 (binding
   attrpath: (attrpath attr: (identifier)) @variable.other.member)
 
-(inherit_from attrs: (inherited_attrs attr: (identifier) @variable))
+(inherit_from attrs: (inherited_attrs attr: (identifier) @variable.other.member))
+(inherited_attrs attr: (identifier) @variable)
 
 (has_attr_expression
   expression: (_)
