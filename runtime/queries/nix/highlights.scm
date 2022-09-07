@@ -47,6 +47,7 @@
 (float_expression) @constant.numeric.float
 
 (escape_sequence) @constant.character.escape
+(dollar_escape) @constant.character.escape
 
 (function_expression
   universal: (identifier) @variable.parameter
