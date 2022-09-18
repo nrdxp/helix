@@ -422,7 +422,7 @@ pub enum GutterType {
     /// Show one blank space
     Spacer,
     /// Highlight local changes
-    GitDiff,
+    Diff,
 }
 
 impl std::str::FromStr for GutterType {
@@ -432,6 +432,7 @@ impl std::str::FromStr for GutterType {
         match s.to_lowercase().as_str() {
             "diagnostics" => Ok(Self::Diagnostics),
             "line-numbers" => Ok(Self::LineNumbers),
+            "diff" => Ok(Self::Diff),
             _ => anyhow::bail!("Gutter type can only be `diagnostics` or `line-numbers`."),
         }
     }
@@ -561,7 +562,11 @@ impl Default for Config {
             },
             line_number: LineNumber::Absolute,
             cursorline: false,
-            gutters: vec![GutterType::Diagnostics, GutterType::LineNumbers],
+            gutters: vec![
+                GutterType::Diff,
+                GutterType::Diagnostics,
+                GutterType::LineNumbers,
+            ],
             middle_click_paste: true,
             auto_pairs: AutoPairConfig::default(),
             auto_completion: true,
@@ -633,7 +638,7 @@ pub struct Editor {
     pub macro_replaying: Vec<char>,
     pub language_servers: helix_lsp::Registry,
     pub diagnostics: BTreeMap<lsp::Url, Vec<(lsp::Diagnostic, OffsetEncoding)>>,
-    pub vcs_providers: helix_vcs::Registry,
+    pub diff_providers: helix_vcs::DiffProviderRegistry,
 
     pub debugger: Option<dap::Client>,
     pub debugger_events: SelectAll<UnboundedReceiverStream<dap::Payload>>,
@@ -718,7 +723,7 @@ impl Editor {
             theme: theme_loader.default(),
             language_servers,
             diagnostics: BTreeMap::new(),
-            vcs_providers: helix_vcs::Registry::new(),
+            diff_providers: helix_vcs::DiffProviderRegistry::new(),
             debugger: None,
             debugger_events: SelectAll::new(),
             breakpoints: HashMap::new(),
@@ -1043,8 +1048,9 @@ impl Editor {
             let mut doc = Document::open(&path, None, Some(self.syn_loader.clone()))?;
 
             let _ = Self::launch_language_servers(&mut self.language_servers, &mut doc);
-            doc.set_version_control(self.vcs_providers.discover_from_path(&path));
-            doc.diff_with_vcs();
+            if let Some(diff_base) = self.diff_providers.get_file_head(&path) {
+                doc.set_diff_base(diff_base);
+            }
             self.new_document(doc)
         };
 

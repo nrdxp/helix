@@ -107,7 +107,7 @@ impl View {
                 GutterType::Diagnostics => 1,
                 GutterType::LineNumbers => 5,
                 GutterType::Spacer => 1,
-                GutterType::GitDiff => 1,
+                GutterType::Diff => 1,
             };
             gutter_offset += width;
             gutters.push((
@@ -115,7 +115,7 @@ impl View {
                     GutterType::Diagnostics => gutter::diagnostics_or_breakpoints,
                     GutterType::LineNumbers => gutter::line_numbers,
                     GutterType::Spacer => gutter::padding,
-                    GutterType::GitDiff => gutter::git_diff,
+                    GutterType::Diff => gutter::diff,
                 },
                 width as usize,
             ));

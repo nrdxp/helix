@@ -52,7 +52,7 @@ pub fn diagnostic<'doc>(
     })
 }
 
-pub fn git_diff<'doc>(
+pub fn diff<'doc>(
     _editor: &'doc Editor,
     doc: &'doc Document,
     _view: &View,

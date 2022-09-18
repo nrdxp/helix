@@ -1,14 +1,8 @@
-mod git;
-mod rope;
-
-use std::{
-    cell::RefCell,
-    collections::HashMap,
-    path::{Path, PathBuf},
-    rc::Rc,
-};
+use std::{collections::HashMap, path::Path};
 
 pub use git::Git;
+
+mod git;
 
 // TODO: Move to helix_core once we have a generic diff mode
 #[derive(Copy, Clone, Debug)]
@@ -21,29 +15,30 @@ pub enum LineDiff {
 /// Maps line numbers to changes
 pub type LineDiffs = HashMap<usize, LineDiff>;
 
-pub type RepoRoot = PathBuf;
-
-#[derive(Debug, Default)]
-pub struct Registry {
-    inner: HashMap<RepoRoot, Rc<RefCell<Git>>>,
+trait DiffProvider {
+    fn get_file_head(&self, file: &Path) -> Option<Vec<u8>>;
+}
+pub struct DiffProviderRegistry {
+    providers: Vec<Box<dyn DiffProvider>>,
 }
 
-impl Registry {
-    pub fn new() -> Self {
-        Self::default()
+impl DiffProviderRegistry {
+    pub fn new() -> DiffProviderRegistry {
+        // currently only git is supported
+        // TODO make this configurable when more providers are added
+        let git: Box<dyn DiffProvider> = Box::new(Git);
+        let providers = vec![git];
+        DiffProviderRegistry { providers }
     }
+    pub fn get_file_head(&self, file: &Path) -> Option<Vec<u8>> {
+        self.providers
+            .iter()
+            .find_map(|provider| provider.get_file_head(file))
+    }
+}
 
-    pub fn discover_from_path(&mut self, file: &Path) -> Option<Rc<RefCell<Git>>> {
-        let cached_root = self.inner.keys().find(|root| file.starts_with(root));
-        match cached_root {
-            Some(root) => self.inner.get(root).cloned(),
-            None => {
-                let repo = Git::discover_from_path(file)?;
-                let root = repo.root().to_path_buf();
-                let repo = Rc::new(RefCell::new(repo));
-                self.inner.insert(root, Rc::clone(&repo));
-                Some(repo)
-            }
-        }
+impl Default for DiffProviderRegistry {
+    fn default() -> Self {
+        Self::new()
     }
 }

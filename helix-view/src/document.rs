@@ -8,12 +8,12 @@ use helix_core::Range;
 use helix_vcs::LineDiffs;
 use serde::de::{self, Deserialize, Deserializer};
 use serde::Serialize;
-use std::cell::{Cell, RefCell};
+use std::cell::Cell;
 use std::collections::HashMap;
 use std::fmt::Display;
 use std::future::Future;
+use std::io::Cursor;
 use std::path::{Path, PathBuf};
-use std::rc::Rc;
 use std::str::FromStr;
 use std::sync::Arc;
 
@@ -125,7 +125,6 @@ pub struct Document {
     diagnostics: Vec<Diagnostic>,
     language_servers: Vec<Arc<helix_lsp::Client>>,
 
-    version_control: Option<Rc<RefCell<helix_vcs::Git>>>,
     /// The changes that should be applied to the current text in the doc
     /// to get the diff base (eg. checked in version of the file in git).
     diff_changes: Option<ChangeSet>,
@@ -368,7 +367,6 @@ impl Document {
             last_saved_revision: 0,
             modified_since_accessed: false,
             language_servers: Vec::new(),
-            version_control: None,
             diff_changes: None,
             line_diffs: LineDiffs::new(),
         }
@@ -714,40 +712,29 @@ impl Document {
         self.language_servers = language_servers;
     }
 
-    pub fn set_version_control(&mut self, vcs: Option<Rc<RefCell<helix_vcs::Git>>>) {
-        self.version_control = vcs;
+    pub fn clear_diff_base(&mut self) {
+        self.diff_changes = None;
+        self.line_diffs.clear();
     }
 
-    pub fn diff_with_vcs(&mut self) {
-        let mut vcs = self
-            .version_control
-            .as_ref()
-            .and_then(|v| v.try_borrow_mut().ok());
-        let diff_base = self
-            .path()
-            .and_then(|path| vcs.as_mut()?.read_file_from_head(path));
-        if let Some(diff_base) = diff_base {
-            let changes = compare_ropes(diff_base, self.text()).changes().clone();
-            let changes = changes.invert(diff_base);
+    pub fn set_diff_base(&mut self, diff_base: Vec<u8>) {
+        if let Ok((diff_base, ..)) = from_reader(&mut Cursor::new(diff_base), Some(self.encoding)) {
+            let changes = compare_ropes(&diff_base, self.text()).changes().clone();
+            let changes = changes.invert(&diff_base);
+            Self::diff_with_base(&changes, &self.text, &mut self.line_diffs);
             self.diff_changes = Some(changes);
-            drop(vcs);
-            self.diff_with_base();
         }
     }
 
-    pub fn diff_with_base(&mut self) {
-        let changes = match &self.diff_changes {
-            Some(c) => c,
-            None => return,
-        };
-        self.line_diffs.clear();
+    pub fn diff_with_base(changes: &ChangeSet, text: &Rope, line_diffs: &mut LineDiffs) {
+        line_diffs.clear();
 
         for (from, to, replacement) in changes.changes_iter() {
-            let from_line = self.text().char_to_line(from);
-            let to_line = self.text().char_to_line(to);
+            let from_line = text.char_to_line(from);
+            let to_line = text.char_to_line(to);
             let mut mark_with = |diff_tag| {
                 for line_idx in from_line..=to_line {
-                    self.line_diffs.entry(line_idx).or_insert(diff_tag);
+                    line_diffs.entry(line_idx).or_insert(diff_tag);
                 }
             };
             match replacement {
@@ -843,8 +830,8 @@ impl Document {
             if let Some(changes) = self.diff_changes.take() {
                 let reverted_changes = reverted_tx.changes().clone();
                 let changes = reverted_changes.compose(changes);
+                Self::diff_with_base(&changes, &self.text, &mut self.line_diffs);
                 self.diff_changes = Some(changes);
-                self.diff_with_base();
             }
 
             // generate revert to savepoint

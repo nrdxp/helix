@@ -92,7 +92,7 @@
             prev.packages
             ++ (
               with common.pkgs;
-                [lld_13 cargo-flamegraph rust-analyzer]
+                [lld_13 cargo-flamegraph rust-analyzer cmake gnumake]
                 ++ (lib.optional (stdenv.isx86_64 && stdenv.isLinux) cargo-tarpaulin)
                 ++ (lib.optional stdenv.isLinux lldb)
             );
