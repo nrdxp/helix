@@ -11,9 +11,7 @@ homepage = "https://helix-editor.com"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-similar = "2.1"
-ropey = "1.3"
-git-repository = "0.23.1"
+git-repository = {version = "0.23.1", default-features = false}
 
 [dev-dependencies]
 tempfile = "3.3"
