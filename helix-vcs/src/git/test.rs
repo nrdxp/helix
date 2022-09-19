@@ -92,7 +92,7 @@ fn symlink() {
     #[cfg(unix)]
     use std::os::unix::fs::symlink;
     #[cfg(not(unix))]
-    use std::os::windows::fs::symlink_file;
+    use std::os::windows::fs::symlink_file as symlink;
     let temp_git = empty_git_repo();
     let file = temp_git.path().join("file.txt");
     let contents = b"foo".as_slice();
