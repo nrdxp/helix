@@ -2,10 +2,9 @@ use anyhow::{anyhow, bail, Context, Error};
 use futures_util::future::BoxFuture;
 use futures_util::FutureExt;
 use helix_core::auto_pairs::AutoPairs;
-use helix_core::diff::compare_ropes;
 use helix_core::syntax::{LanguageServerFeature, LanguageServerFeatureConfiguation};
 use helix_core::Range;
-use helix_vcs::LineDiffs;
+use helix_vcs::Differ;
 use serde::de::{self, Deserialize, Deserializer};
 use serde::Serialize;
 use std::cell::Cell;
@@ -125,10 +124,7 @@ pub struct Document {
     diagnostics: Vec<Diagnostic>,
     language_servers: Vec<Arc<helix_lsp::Client>>,
 
-    /// The changes that should be applied to the current text in the doc
-    /// to get the diff base (eg. checked in version of the file in git).
-    diff_changes: Option<ChangeSet>,
-    line_diffs: LineDiffs,
+    differ: Option<Differ>,
 }
 
 use std::{fmt, mem};
@@ -367,8 +363,7 @@ impl Document {
             last_saved_revision: 0,
             modified_since_accessed: false,
             language_servers: Vec::new(),
-            diff_changes: None,
-            line_diffs: LineDiffs::new(),
+            differ: None,
         }
     }
 
@@ -712,39 +707,6 @@ impl Document {
         self.language_servers = language_servers;
     }
 
-    pub fn clear_diff_base(&mut self) {
-        self.diff_changes = None;
-        self.line_diffs.clear();
-    }
-
-    pub fn set_diff_base(&mut self, diff_base: Vec<u8>) {
-        if let Ok((diff_base, ..)) = from_reader(&mut Cursor::new(diff_base), Some(self.encoding)) {
-            let changes = compare_ropes(&diff_base, self.text()).changes().clone();
-            let changes = changes.invert(&diff_base);
-            Self::diff_with_base(&changes, &self.text, &mut self.line_diffs);
-            self.diff_changes = Some(changes);
-        }
-    }
-
-    pub fn diff_with_base(changes: &ChangeSet, text: &Rope, line_diffs: &mut LineDiffs) {
-        line_diffs.clear();
-
-        for (from, to, replacement) in changes.changes_iter() {
-            let from_line = text.char_to_line(from);
-            let to_line = text.char_to_line(to);
-            let mut mark_with = |diff_tag| {
-                for line_idx in from_line..=to_line {
-                    line_diffs.entry(line_idx).or_insert(diff_tag);
-                }
-            };
-            match replacement {
-                None if from_line == to_line => mark_with(helix_vcs::LineDiff::Modified),
-                None => mark_with(helix_vcs::LineDiff::Added),
-                Some(_) => mark_with(helix_vcs::LineDiff::Deleted),
-            }
-        }
-    }
-
     /// Select text within the [`Document`].
     pub fn set_selection(&mut self, view_id: ViewId, selection: Selection) {
         // TODO: use a transaction?
@@ -814,26 +776,6 @@ impl Document {
             self.version += 1;
             let reverted_tx = transaction.invert(&old_doc);
 
-            // Consider H to be the text of the file in git HEAD, and B₁ to be
-            // the text when buffer initially loads. H → B₁ is the changeset
-            // that describes the diff between HEAD and buffer text. Inverting
-            // this produces B₁ → H, which is initially saved to `diff_changes`.
-            // In the next edit, buffer text changes to B₂. The transaction
-            // describes the change B₁ → B₂. Inverting this gives B₂ → B₁.
-            // Composing this with the saved `diff_changes` gives us
-            // (B₂ → B₁) → (B₁ → H) = B₂ → H. Whenever examining a change X₁ → X₂,
-            // we need to know the contents of the text at state X₁ to know where
-            // to apply the operations in the changeset. The advantage of inverting and
-            // composing this way instead of simply composing (which would give
-            // us H → B₂ in this example) is that we no longer need the HEAD text
-            // and we can instead use the current text in the buffer.
-            if let Some(changes) = self.diff_changes.take() {
-                let reverted_changes = reverted_tx.changes().clone();
-                let changes = reverted_changes.compose(changes);
-                Self::diff_with_base(&changes, &self.text, &mut self.line_diffs);
-                self.diff_changes = Some(changes);
-            }
-
             // generate revert to savepoint
             if self.savepoint.is_some() {
                 take_with(&mut self.savepoint, |prev_revert| {
@@ -872,6 +814,9 @@ impl Document {
                 if let Some(notify) = notify {
                     tokio::spawn(notify);
                 }
+            }
+            if let Some(differ) = self.differ.as_ref() {
+                differ.update_document(self.text.clone());
             }
         }
         success
@@ -1112,8 +1057,19 @@ impl Document {
             .collect()
     }
 
-    pub fn line_diffs(&self) -> &LineDiffs {
-        &self.line_diffs
+    pub fn differ(&self) -> Option<&Differ> {
+        self.differ.as_ref()
+    }
+
+    /// Intialize/updates the differ for this document with a new base.
+    pub fn set_diff_base(&mut self, diff_base: Vec<u8>) {
+        if let Ok((diff_base, _)) = from_reader(&mut Cursor::new(diff_base), Some(self.encoding)) {
+            if let Some(differ) = &self.differ {
+                differ.update_diff_base(diff_base);
+                return;
+            }
+            self.differ = Some(Differ::new(diff_base, self.text.clone()))
+        }
     }
 
     #[inline]

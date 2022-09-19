@@ -1,11 +1,14 @@
 use std::{collections::HashMap, path::Path};
 
+pub use differ::Differ;
 pub use git::Git;
 
+mod differ;
 mod git;
+mod rope_line_cache;
 
 // TODO: Move to helix_core once we have a generic diff mode
-#[derive(Copy, Clone, Debug)]
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub enum LineDiff {
     Added,
     Deleted,

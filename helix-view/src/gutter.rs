@@ -65,7 +65,7 @@ pub fn diff<'doc>(
     let modified = theme.get("diff.delta");
 
     Box::new(move |line: usize, _selected: bool, out: &mut String| {
-        let diff = doc.line_diffs().get(&(line))?;
+        let diff = *doc.differ()?.get_line_diffs().get(&line)?;
 
         let (icon, style) = match diff {
             LineDiff::Added => ("▍", added),
