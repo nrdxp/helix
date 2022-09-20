@@ -3,7 +3,7 @@ use std::ops::Deref;
 use std::sync::Arc;
 
 use arc_swap::ArcSwap;
-use ropey::{Rope, RopeSlice};
+use helix_core::{Rope, RopeSlice};
 use similar::{capture_diff_slices_deadline, Algorithm, DiffTag};
 use tokio::sync::mpsc::{unbounded_channel, UnboundedReceiver, UnboundedSender};
 use tokio::task::JoinHandle;

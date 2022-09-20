@@ -1,4 +1,4 @@
-use ropey::Rope;
+use helix_core::Rope;
 use tokio::task::JoinHandle;
 
 use crate::{Differ, LineDiff};

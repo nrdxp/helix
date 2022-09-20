@@ -1080,7 +1080,7 @@ version = "0.6.0"
 dependencies = [
  "arc-swap",
  "git-repository",
- "ropey",
+ "helix-core",
  "similar",
  "tempfile",
  "tokio",

@@ -12,7 +12,7 @@
 //! A transmute is used to change the lifetime of the slice to static to circumwent that project.
 use std::mem::transmute;
 
-use ropey::{Rope, RopeSlice};
+use helix_core::{Rope, RopeSlice};
 
 /// A cache that stores the `lines` of a rope as a vector.
 /// It allows safely reusing the allocation of the vec when updating the rope
