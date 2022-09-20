@@ -774,12 +774,12 @@ impl Document {
 
         if !transaction.changes().is_empty() {
             self.version += 1;
-            let reverted_tx = transaction.invert(&old_doc);
 
             // generate revert to savepoint
             if self.savepoint.is_some() {
                 take_with(&mut self.savepoint, |prev_revert| {
-                    Some(reverted_tx.compose(prev_revert.unwrap()))
+                    let revert = transaction.invert(&old_doc);
+                    Some(revert.compose(prev_revert.unwrap()))
                 });
             }
 
