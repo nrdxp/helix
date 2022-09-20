@@ -12,7 +12,7 @@ pub struct Git;
 
 impl DiffProvider for Git {
     fn get_file_head(&self, file: &Path) -> Option<Vec<u8>> {
-        debug_assert!(file.is_file());
+        debug_assert!(!file.exists() || file.is_file());
         debug_assert!(file.is_absolute());
 
         // discover a repository, requires a directory so we call parent (should not fail but exit gracefully in that case)
