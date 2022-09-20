@@ -16,6 +16,7 @@ vscode-html-language-server = { command = "vscode-html-language-server", args = 
 pylsp = { command = "pylsp" }
 nls = { command = "nls" }
 rnix-lsp = { command = "rnix-lsp" }
+nil = { command = "nil" }
 solargraph = { command = "solargraph", args = ["stdio"] }
 bash-language-server = { command = "bash-language-server", args = ["start"] }
 intelephense = { command = "intelephense", args = ["--stdio"] }
@@ -551,7 +552,7 @@ file-types = ["nix"]
 shebangs = []
 roots = []
 comment-token = "#"
-language-servers = [ "rnix-lsp" ]
+language-servers = [ "nil" ]
 indent = { tab-width = 2, unit = "  " }
 auto-format = true
 formatter = { command = "alejandra" , args = ["-q"] }
