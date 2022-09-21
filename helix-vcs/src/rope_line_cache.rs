@@ -50,20 +50,7 @@ impl RopeLineCache {
             .lines()
             .map(|line: RopeSlice| -> RopeSlice<'static> { unsafe { transmute(line) } });
         self.lines.extend(lines);
-
-        // if self
-        //     .lines
-        //     .last()
-        //     .and_then(|last| last.as_str())
-        //     .map_or(false, |last| last.is_empty())
-        // {
-        //     self.lines.pop();
-        // }
     }
-
-    // pub fn rope(&self) -> &Rope {
-    //     &self.rope
-    // }
 
     pub fn lines(&self) -> &[RopeSlice] {
         &self.lines
