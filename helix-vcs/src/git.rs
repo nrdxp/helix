@@ -1,7 +1,9 @@
 use std::path::Path;
 
-use git_repository::objs::tree::EntryMode;
-use git_repository::{discover, Commit, ObjectId, Repository};
+use git::objs::tree::EntryMode;
+use git::sec::trust::DefaultForLevel;
+use git::{Commit, ObjectId, Repository, ThreadSafeRepository};
+use git_repository as git;
 
 use crate::DiffProvider;
 
@@ -10,13 +12,50 @@ mod test;
 
 pub struct Git;
 
+impl Git {
+    fn open_repo(path: &Path, ceiling_dir: Option<&Path>) -> Option<ThreadSafeRepository> {
+        // custom open options
+        let mut git_open_opts_map = git::sec::trust::Mapping::<git::open::Options>::default();
+
+        // don't use the global git configs (not needed)
+        let config = git::permissions::Config {
+            system: false,
+            git: false,
+            user: false,
+            env: true,
+            includes: true,
+        };
+        // change options for config permissions without touching anything else
+        git_open_opts_map.reduced = git_open_opts_map.reduced.permissions(git::Permissions {
+            config,
+            ..git::Permissions::default_for_level(git::sec::Trust::Reduced)
+        });
+        git_open_opts_map.full = git_open_opts_map.full.permissions(git::Permissions {
+            config,
+            ..git::Permissions::default_for_level(git::sec::Trust::Full)
+        });
+
+        let mut open_options = git::discover::upwards::Options::default();
+        if let Some(ceiling_dir) = ceiling_dir {
+            open_options.ceiling_dirs = vec![ceiling_dir.to_owned()];
+        }
+
+        ThreadSafeRepository::discover_with_environment_overrides_opts(
+            path,
+            open_options,
+            git_open_opts_map,
+        )
+        .ok()
+    }
+}
+
 impl DiffProvider for Git {
     fn get_file_head(&self, file: &Path) -> Option<Vec<u8>> {
         debug_assert!(!file.exists() || file.is_file());
         debug_assert!(file.is_absolute());
 
-        // discover a repository, requires a directory so we call parent (should not fail but exit gracefully in that case)
-        let repo = discover(file.parent()?).ok()?;
+        // TODO cache repository lookup
+        let repo = Git::open_repo(file.parent()?, None)?.to_thread_local();
         let head = repo.head_commit().ok()?;
         let file_oid = find_file_in_commit(&repo, &head, file)?;
 
@@ -39,6 +78,8 @@ fn find_file_in_commit(repo: &Repository, commit: &Commit, file: &Path) -> Optio
         EntryMode::Blob | EntryMode::BlobExecutable => Some(tree_entry.oid),
     }
 }
+
+// TODO replace with lookup_path function in git-repository 0.24 once we can update to it
 
 /// On unix paths are always raw bytes (that are usually utf-8) that can be passed to git directly.
 /// This function is infallible
