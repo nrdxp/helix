@@ -9,6 +9,21 @@ fn exec_git_cmd(args: &str, git_dir: &Path) {
         .arg("-C")
         .arg(git_dir) // execute the git command in this directory
         .args(args.split_whitespace())
+        .env_remove("GIT_DIR")
+        .env_remove("GIT_ASKPASS")
+        .env_remove("SSH_ASKPASS")
+        .env("GIT_TERMINAL_PROMPT", "false")
+        .env("GIT_AUTHOR_DATE", "2000-01-01 00:00:00 +0000")
+        .env("GIT_AUTHOR_EMAIL", "author@example.com")
+        .env("GIT_AUTHOR_NAME", "author")
+        .env("GIT_COMMITTER_DATE", "2000-01-02 00:00:00 +0000")
+        .env("GIT_COMMITTER_EMAIL", "committer@example.com")
+        .env("GIT_COMMITTER_NAME", "committer")
+        .env("GIT_CONFIG_COUNT", "2")
+        .env("GIT_CONFIG_KEY_0", "commit.gpgsign")
+        .env("GIT_CONFIG_VALUE_0", "false")
+        .env("GIT_CONFIG_KEY_1", "init.defaultBranch")
+        .env("GIT_CONFIG_VALUE_1", "main")
         .output()
         .unwrap_or_else(|_| panic!("`git {args}` failed"));
     if !res.status.success() {
@@ -22,7 +37,7 @@ fn create_commit(repo: &Path, add_modified: bool) {
     if add_modified {
         exec_git_cmd("add -A", repo);
     }
-    exec_git_cmd("commit -m message --no-gpg-sign", repo);
+    exec_git_cmd("commit -m message", repo);
 }
 
 fn empty_git_repo() -> TempDir {
