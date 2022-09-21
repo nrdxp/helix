@@ -41,7 +41,7 @@ fn find_file_in_commit(repo: &Repository, commit: &Commit, file: &Path) -> Optio
 }
 
 /// On unix paths are always raw bytes (that are usually utf-8) that can be passed to git directly.
-/// This function is infalliable
+/// This function is infallible
 #[cfg(any(unix, target_os = "wasi"))]
 fn byte_path_components(path: &Path) -> Option<impl Iterator<Item = &[u8]>> {
     #[cfg(unix)]
@@ -54,7 +54,7 @@ fn byte_path_components(path: &Path) -> Option<impl Iterator<Item = &[u8]>> {
     Some(components)
 }
 
-/// On other platforms (windows) osstr can only be converted to bytes if it is valid utf-8 (so falliable).
+/// On other platforms (windows) `OsStr` can only be converted to bytes if it is valid utf-8 (so fallible).
 /// The path components need to be checked for invalid utf-8 before they can be passed to git.
 /// Therefore this implementation collects the components into a temporary vector
 #[cfg(not(any(unix, target_os = "wasi")))]

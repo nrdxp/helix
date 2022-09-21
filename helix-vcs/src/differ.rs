@@ -27,10 +27,10 @@ impl Differ {
     }
 
     fn new_with_handle(diff_base: Rope, doc: Rope) -> (Differ, JoinHandle<()>) {
-        let (sender, reciver) = unbounded_channel();
+        let (sender, receiver) = unbounded_channel();
         let line_diffs: Arc<ArcSwap<LineDiffs>> = Arc::default();
         let worker = DiffWorker {
-            channel: reciver,
+            channel: receiver,
             line_diffs: line_diffs.clone(),
             new_line_diffs: LineDiffs::default(),
         };
@@ -77,7 +77,7 @@ impl DiffWorker {
             let mut accumulator = EventAccumulator::new();
             accumulator.handle_event(event);
             accumulator
-                .accumualte_debounced_events(&mut self.channel)
+                .accumulate_debounced_events(&mut self.channel)
                 .await;
 
             if let Some(new_doc) = accumulator.doc {
@@ -94,7 +94,7 @@ impl DiffWorker {
 
     /// update the line diff (used by the gutter) by replacing it with `self.new_line_diffs`.
     /// `self.new_line_diffs` is always empty after this function runs.
-    /// To improve performance this function trys to reuse the allocation of the old diff previously stored in `self.line_diffs`
+    /// To improve performance this function tries to reuse the allocation of the old diff previously stored in `self.line_diffs`
     fn apply_line_diff(&mut self) {
         let diff_to_apply = take(&mut self.new_line_diffs);
         let old_line_diff = self.line_diffs.swap(Arc::new(diff_to_apply));
@@ -157,7 +157,7 @@ impl EventAccumulator {
             Event::UpdateDiffBase(new_diff_base) => self.diff_base = Some(new_diff_base),
         }
     }
-    async fn accumualte_debounced_events(&mut self, channel: &mut UnboundedReceiver<Event>) {
+    async fn accumulate_debounced_events(&mut self, channel: &mut UnboundedReceiver<Event>) {
         let final_time = Instant::now() + Duration::from_millis(DIFF_MAX_DEBOUNCE);
         let debounce = Duration::from_millis(DIFF_DEBOUNCE);
         loop {

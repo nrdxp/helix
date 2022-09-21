@@ -9,7 +9,7 @@ impl Differ {
     }
     async fn into_diff(self, handle: JoinHandle<()>) -> Vec<(usize, LineDiff)> {
         let line_diffs = self.line_diffs;
-        // dropping th echannel terminates the task
+        // dropping the channel terminates the task
         drop(self.channel);
         handle.await.unwrap();
         let diffs = line_diffs.load();

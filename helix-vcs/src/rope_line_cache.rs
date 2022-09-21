@@ -1,15 +1,15 @@
 //! This modules encapsulates a tiny bit of unsafe code that
-//! makes diffing signifcantly faster and more ergonomic to implement.
-//! This code is necessaty because diffing requires quick random
+//! makes diffing significantly faster and more ergonomic to implement.
+//! This code is necessary because diffing requires quick random
 //! access to the lines of the text that is being diffed.
 //!
 //! Therefore it is best to collect the `Rope::lines` iterator into a vec
 //! first because access to the vec is `O(1)` where `Rope::line` is `O(log N)`.
 //! However this process can allocate a (potentially quite large) vector.
 //!
-//! To avoid realoction for every diff, the vector is reused.
+//! To avoid reallocation for every diff, the vector is reused.
 //! However the RopeSlice references the original rope and therefore forms a self-referential data structure.
-//! A transmute is used to change the lifetime of the slice to static to circumwent that project.
+//! A transmute is used to change the lifetime of the slice to static to circumvent that project.
 use std::mem::transmute;
 
 use helix_core::{Rope, RopeSlice};
@@ -39,7 +39,7 @@ impl RopeLineCache {
 
     fn update_lines(&mut self) {
         debug_assert_eq!(self.lines.len(), 0);
-        // Safety: This transmute is save because it only transmutes a liftime which have no effect.
+        // Safety: This transmute is save because it only transmutes a lifetime which have no effect.
         // The backing storage for the RopeSlices referred to by the lifetime is stored in `self.rope`.
         // Therefore as long as `self.rope` is not dropped/replaced this memory remains valid.
         // `self.rope` is only changed `self.update`, which clear the generated slices.
