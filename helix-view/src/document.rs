@@ -11,7 +11,6 @@ use std::cell::Cell;
 use std::collections::HashMap;
 use std::fmt::Display;
 use std::future::Future;
-use std::io::Cursor;
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
 use std::sync::Arc;
@@ -1063,7 +1062,7 @@ impl Document {
 
     /// Intialize/updates the differ for this document with a new base.
     pub fn set_diff_base(&mut self, diff_base: Vec<u8>) {
-        if let Ok((diff_base, _)) = from_reader(&mut Cursor::new(diff_base), Some(self.encoding)) {
+        if let Ok((diff_base, _)) = from_reader(&mut diff_base.as_slice(), Some(self.encoding)) {
             if let Some(differ) = &self.differ {
                 differ.update_diff_base(diff_base);
                 return;
