@@ -39,7 +39,7 @@ impl RopeLineCache {
 
     fn update_lines(&mut self) {
         debug_assert_eq!(self.lines.len(), 0);
-        // Safety: This transmute is save because it only transmutes a lifetime which have no effect.
+        // Safety: This transmute is save because it only transmutes a lifetime, which has no effect.
         // The backing storage for the RopeSlices referred to by the lifetime is stored in `self.rope`.
         // Therefore as long as `self.rope` is not dropped/replaced this memory remains valid.
         // `self.rope` is only changed `self.update`, which clear the generated slices.
@@ -50,7 +50,20 @@ impl RopeLineCache {
             .lines()
             .map(|line: RopeSlice| -> RopeSlice<'static> { unsafe { transmute(line) } });
         self.lines.extend(lines);
+
+        // if self
+        //     .lines
+        //     .last()
+        //     .and_then(|last| last.as_str())
+        //     .map_or(false, |last| last.is_empty())
+        // {
+        //     self.lines.pop();
+        // }
     }
+
+    // pub fn rope(&self) -> &Rope {
+    //     &self.rope
+    // }
 
     pub fn lines(&self) -> &[RopeSlice] {
         &self.lines
