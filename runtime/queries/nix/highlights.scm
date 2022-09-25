@@ -50,6 +50,7 @@
 (dollar_escape) @constant.character.escape
 
 (function_expression
+  "@"? @punctuation.delimiter
   universal: (identifier) @variable.parameter
   "@"? @punctuation.delimiter
 )
