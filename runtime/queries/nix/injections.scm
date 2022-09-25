@@ -5,9 +5,11 @@
 
 ((binding
    attrpath: (attrpath (identifier) @_path)
-   expression: (indented_string_expression
-     (string_fragment) @injection.content))
- (#match? @_path "(^\\w*Phase|(pre|post)\\w*|(.*\\.)?\\w*([sS]cript|[hH]ook)|(.*\\.)?startup)$")
+   expression: [
+     (indented_string_expression (string_fragment) @injection.content)
+     (binary_expression (indented_string_expression (string_fragment) @injection.content))
+   ])
+ (#match? @_path "(^\\w*Phase|command|(pre|post)\\w*|(.*\\.)?\\w*([sS]cript|[hH]ook)|(.*\\.)?startup)$")
  (#set! injection.language "bash")
  (#set! injection.combined))
 
