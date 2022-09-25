@@ -39,3 +39,10 @@
   (#match? @_path "^text$")
   (#set! injection.language "bash")
   (#set! injection.combined))
+
+((apply_expression
+   function: (apply_expression function: (_) @_func
+     argument: (string_expression (string_fragment) @injection.filename))
+   argument: (indented_string_expression (string_fragment) @injection.content))
+ (#match? @_func "(^|\\.)write(Text|Script(Bin)?)$")
+ (#set! injection.combined))
