@@ -104,6 +104,10 @@
                 eval = "$PWD/runtime";
               }
               {
+                name = "RUST_SRC_PATH";
+                value = common.pkgs.rustPlatform.rustLibSrc;
+              }
+              {
                 name = "RUST_BACKTRACE";
                 value = "1";
               }
