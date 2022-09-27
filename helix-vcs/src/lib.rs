@@ -19,29 +19,30 @@ pub enum LineDiff {
 pub type LineDiffs = HashMap<usize, LineDiff>;
 
 trait DiffProvider {
-    fn get_file_head(&self, file: &Path) -> Option<Vec<u8>>;
+    /// Returns the data that a diff should be computed against
+    /// if this provider is used.
+    /// The data is returned as raw byte without any decoding or encoding performed
+    /// to ensure all file encodings are handled correctly.
+    fn get_diff_base(&self, file: &Path) -> Option<Vec<u8>>;
 }
 pub struct DiffProviderRegistry {
     providers: Vec<Box<dyn DiffProvider>>,
 }
 
 impl DiffProviderRegistry {
-    pub fn new() -> DiffProviderRegistry {
-        // currently only git is supported
-        // TODO make this configurable when more providers are added
-        let git: Box<dyn DiffProvider> = Box::new(Git);
-        let providers = vec![git];
-        DiffProviderRegistry { providers }
-    }
     pub fn get_file_head(&self, file: &Path) -> Option<Vec<u8>> {
         self.providers
             .iter()
-            .find_map(|provider| provider.get_file_head(file))
+            .find_map(|provider| provider.get_diff_base(file))
     }
 }
 
 impl Default for DiffProviderRegistry {
     fn default() -> Self {
-        Self::new()
+        // currently only git is supported
+        // TODO make this configurable when more providers are added
+        let git: Box<dyn DiffProvider> = Box::new(Git);
+        let providers = vec![git];
+        DiffProviderRegistry { providers }
     }
 }

@@ -50,7 +50,7 @@ impl Git {
 }
 
 impl DiffProvider for Git {
-    fn get_file_head(&self, file: &Path) -> Option<Vec<u8>> {
+    fn get_diff_base(&self, file: &Path) -> Option<Vec<u8>> {
         debug_assert!(!file.exists() || file.is_file());
         debug_assert!(file.is_absolute());
 
