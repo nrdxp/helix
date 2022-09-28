@@ -34,7 +34,7 @@ impl RopeLineCache {
     pub fn update(&mut self, rope: Rope) {
         self.lines.clear();
         self.rope = rope;
-        self.update_lines()
+        self.update_lines();
     }
 
     fn update_lines(&mut self) {
