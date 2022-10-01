@@ -673,7 +673,12 @@ pub fn code_action(cx: &mut Context) {
                     ui::Menu<(lsp::CodeActionOrCommand, OffsetEncoding)>,
                 >>("code-action");
 
-                let mut code_actions_menu_open = code_actions_menu_open.lock().unwrap();
+                let mut code_actions_menu_open = if let Ok(lock) = code_actions_menu_open.lock() {
+                    lock
+                } else {
+                    editor.set_status("Mutex is poisoned, something is seriously wrong here");
+                    return;
+                };
 
                 if !*code_actions_menu_open || code_actions_menu.is_none() {
                     let mut picker =
