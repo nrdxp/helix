@@ -669,9 +669,8 @@ pub fn code_action(cx: &mut Context) {
 
                 let actions = actions.into_iter().map(|a| (a, offset_encoding)).collect();
 
-                let code_actions_menu = compositor.find_id::<Popup<
-                    ui::Menu<(lsp::CodeActionOrCommand, OffsetEncoding)>,
-                >>("code-action");
+                type CodeActionsMenu = Popup<ui::Menu<(lsp::CodeActionOrCommand, OffsetEncoding)>>;
+                let code_actions_menu = compositor.find_id::<CodeActionsMenu>("code-action");
 
                 let mut code_actions_menu_open = if let Ok(lock) = code_actions_menu_open.lock() {
                     lock
