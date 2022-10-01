@@ -4071,11 +4071,12 @@ pub fn completion(cx: &mut Context) {
     // TODO completion starts to get ugly...
     // maybe think about something like completion provider and separate completion-state into helix-view?
     let clear_completion = async move {
-        let call: job::Callback =
-            Box::new(move |editor: &mut Editor, compositor: &mut Compositor| {
+        let call = job::Callback::EditorCompositor(Box::new(
+            move |editor: &mut Editor, compositor: &mut Compositor| {
                 let ui = compositor.find::<ui::EditorView>().unwrap();
                 ui.clear_completion(editor);
-            });
+            },
+        ));
         Ok(call)
     };
     cx.jobs.callback(clear_completion);
