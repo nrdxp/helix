@@ -10,7 +10,7 @@ use serde::de::{self, Deserialize, Deserializer};
 use serde::Serialize;
 use std::borrow::Cow;
 use std::cell::Cell;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fmt::Display;
 use std::future::Future;
 use std::path::{Path, PathBuf};
@@ -1233,10 +1233,26 @@ impl Document {
         &self.diagnostics
     }
 
-    pub fn set_diagnostics(&mut self, diagnostics: Vec<Diagnostic>) {
-        self.diagnostics = diagnostics;
+    pub fn shown_diagnostics(&self) -> impl Iterator<Item = &Diagnostic> {
+        let ls_ids: HashSet<_> = self
+            .language_servers_with_feature(LanguageServerFeature::Diagnostics)
+            .iter()
+            .map(|ls| ls.id())
+            .collect();
+        self.diagnostics
+            .iter()
+            .filter(move |d| ls_ids.contains(&d.language_server_id))
+    }
+
+    pub fn append_diagnostics(&mut self, mut diagnostics: Vec<Diagnostic>) {
+        self.diagnostics.append(&mut diagnostics);
         self.diagnostics
             .sort_unstable_by_key(|diagnostic| diagnostic.range);
+    }
+
+    pub fn clear_diagnostics(&mut self, language_server_id: usize) {
+        self.diagnostics
+            .retain(|d| d.language_server_id != language_server_id);
     }
 
     /// Get the document's auto pairs. If the document has a recognized

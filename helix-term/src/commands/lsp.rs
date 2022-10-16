@@ -497,10 +497,16 @@ pub fn workspace_diagnostics_picker(cx: &mut Context) {
     cx.push_layer(Box::new(overlayed(picker)));
 }
 
-impl ui::menu::Item for (lsp::CodeActionOrCommand, OffsetEncoding) {
+struct CodeActionOrCommandMenuItem {
+    action_or_command: lsp::CodeActionOrCommand,
+    offset_encoding: OffsetEncoding,
+    language_server_id: usize,
+}
+
+impl ui::menu::Item for CodeActionOrCommandMenuItem {
     type Data = ();
     fn label(&self, _data: &Self::Data) -> Spans {
-        match &self.0 {
+        match &self.action_or_command {
             lsp::CodeActionOrCommand::CodeAction(action) => action.title.as_str().into(),
             lsp::CodeActionOrCommand::Command(command) => command.title.as_str().into(),
         }
@@ -579,6 +585,7 @@ pub fn code_action(cx: &mut Context) {
     for language_server in language_servers {
         let offset_encoding = language_server.offset_encoding();
         let range = range_to_lsp_range(doc.text(), selection_range, offset_encoding);
+        let language_server_id = language_server.id();
         let future = match language_server.code_actions(
             doc.identifier(),
             range,
@@ -590,6 +597,7 @@ pub fn code_action(cx: &mut Context) {
                     .filter(|&diag| {
                         selection_range
                             .overlaps(&helix_core::Range::new(diag.range.start, diag.range.end))
+                            && diag.language_server_id == language_server_id
                     })
                     .map(|diag| diagnostic_to_lsp_diagnostic(doc.text(), diag, offset_encoding))
                     .collect(),
@@ -600,7 +608,7 @@ pub fn code_action(cx: &mut Context) {
             None => continue,
         };
 
-        requests.push((future, offset_encoding, language_server.id()));
+        requests.push((future, offset_encoding, language_server_id));
     }
 
     if has_language_servers && requests.is_empty() {
@@ -608,7 +616,7 @@ pub fn code_action(cx: &mut Context) {
             .set_error("None of the active language servers supports code actions");
     }
 
-    for (future, offset_encoding, lsp_id) in requests {
+    for (future, offset_encoding, language_server_id) in requests {
         let code_actions_menu_open = code_actions_menu_open.clone();
 
         cx.callback(
@@ -667,9 +675,17 @@ pub fn code_action(cx: &mut Context) {
                         .reverse()
                 });
 
-                let actions = actions.into_iter().map(|a| (a, offset_encoding)).collect();
+                // let actions = actions.into_iter().map(|a| (a, offset_encoding)).collect();
+                let actions = actions
+                    .into_iter()
+                    .map(|a| CodeActionOrCommandMenuItem {
+                        action_or_command: a,
+                        offset_encoding,
+                        language_server_id,
+                    })
+                    .collect::<Vec<_>>();
 
-                type CodeActionsMenu = Popup<ui::Menu<(lsp::CodeActionOrCommand, OffsetEncoding)>>;
+                type CodeActionsMenu = Popup<ui::Menu<CodeActionOrCommandMenuItem>>;
                 let code_actions_menu = compositor.find_id::<CodeActionsMenu>("code-action");
 
                 let mut code_actions_menu_open = if let Ok(lock) = code_actions_menu_open.lock() {
@@ -687,18 +703,17 @@ pub fn code_action(cx: &mut Context) {
                             }
 
                             // always present here
-                            let code_action = code_action.unwrap();
+                            let CodeActionOrCommandMenuItem {
+                                action_or_command,
+                                offset_encoding,
+                                language_server_id: lsp_id,
+                            } = code_action.unwrap();
 
-                            match code_action {
-                                (lsp::CodeActionOrCommand::Command(command), _encoding) => {
-                                    log::debug!("code action command: {:?}", command);
-                                    execute_lsp_command(editor, lsp_id, command.clone());
+                            match action_or_command {
+                                lsp::CodeActionOrCommand::Command(command) => {
+                                    execute_lsp_command(editor, *lsp_id, command.clone());
                                 }
-                                (
-                                    lsp::CodeActionOrCommand::CodeAction(code_action),
-                                    offset_encoding,
-                                ) => {
-                                    log::debug!("code action: {:?}", code_action);
+                                lsp::CodeActionOrCommand::CodeAction(code_action) => {
                                     if let Some(ref workspace_edit) = code_action.edit {
                                         log::debug!("edit: {:?}", workspace_edit);
                                         apply_workspace_edit(
@@ -711,7 +726,7 @@ pub fn code_action(cx: &mut Context) {
                                     // if code action provides both edit and command first the edit
                                     // should be applied and then the command
                                     if let Some(command) = &code_action.command {
-                                        execute_lsp_command(editor, lsp_id, command.clone());
+                                        execute_lsp_command(editor, *lsp_id, command.clone());
                                     }
                                 }
                             }
@@ -1128,7 +1143,7 @@ pub fn signature_help_impl_with_language_server_id(
     let future = match language_server.text_document_signature_help(doc.identifier(), pos, None) {
         Some(f) => f,
         None => {
-            if was_manually_invoked {
+            if invoked == SignatureHelpInvoked::Manual {
                 cx.editor
                     .set_error("Language server does not support signature-help");
             }
