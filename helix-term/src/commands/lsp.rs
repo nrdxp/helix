@@ -274,7 +274,7 @@ enum DiagnosticsFormat {
 
 fn diag_picker(
     cx: &Context,
-    diagnostics: BTreeMap<lsp::Url, Vec<(lsp::Diagnostic, OffsetEncoding)>>,
+    diagnostics: BTreeMap<lsp::Url, Vec<(lsp::Diagnostic, usize, OffsetEncoding)>>,
     current_path: Option<lsp::Url>,
     format: DiagnosticsFormat,
 ) -> FilePicker<PickerDiagnostic> {
@@ -284,7 +284,7 @@ fn diag_picker(
     let mut flat_diag = Vec::new();
     for (url, diags) in diagnostics {
         flat_diag.reserve(diags.len());
-        for (diag, offset_encoding) in diags {
+        for (diag, _, offset_encoding) in diags {
             flat_diag.push(PickerDiagnostic {
                 url: url.clone(),
                 diag,

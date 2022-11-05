@@ -30,6 +30,7 @@ use crate::{
 
 use log::{debug, error, warn};
 use std::{
+    collections::btree_map::Entry,
     io::{stdin, stdout, Write},
     sync::Arc,
     time::{Duration, Instant},
@@ -687,13 +688,6 @@ impl Application {
                         if let Some(doc) = doc {
                             let lang_conf = doc.language_config();
                             let text = doc.text();
-                            let language_server = doc
-                                .language_servers()
-                                .iter()
-                                .find(|l| l.id() == server_id)
-                                .copied()
-                                .unwrap();
-                            let language_server_id = language_server.id();
 
                             let diagnostics = params
                                 .diagnostics
@@ -783,12 +777,12 @@ impl Application {
                                         tags,
                                         source: diagnostic.source.clone(),
                                         data: diagnostic.data.clone(),
-                                        language_server_id,
+                                        language_server_id: server_id,
                                     })
                                 })
                                 .collect();
 
-                            doc.clear_diagnostics(language_server_id);
+                            doc.clear_diagnostics(server_id);
                             doc.append_diagnostics(diagnostics);
                         }
 
@@ -800,13 +794,23 @@ impl Application {
                         let diagnostics = params
                             .diagnostics
                             .into_iter()
-                            .map(|d| (d, offset_encoding))
+                            .map(|d| (d, server_id, offset_encoding))
                             .collect();
 
                         // Insert the original lsp::Diagnostics here because we may have no open document
                         // for diagnosic message and so we can't calculate the exact position.
                         // When using them later in the diagnostics picker, we calculate them on-demand.
-                        self.editor.diagnostics.insert(params.uri, diagnostics);
+                        match self.editor.diagnostics.entry(params.uri) {
+                            Entry::Occupied(o) => {
+                                let current_diagnostics = o.into_mut();
+                                // there may entries of other language servers, which is why we can't overwrite the whole entry
+                                current_diagnostics.retain(|(_, lsp_id, _)| *lsp_id != server_id);
+                                current_diagnostics.extend(diagnostics);
+                            }
+                            Entry::Vacant(v) => {
+                                v.insert(diagnostics);
+                            }
+                        };
                     }
                     Notification::ShowMessage(params) => {
                         log::warn!("unhandled window/showMessage: {:?}", params);
