@@ -4111,11 +4111,9 @@ pub fn completion(cx: &mut Context) {
 
         let pos = pos_to_lsp_pos(doc.text(), cursor, offset_encoding);
 
-        let future = match language_server.completion(doc.identifier(), pos, None) {
-            Some(future) => future,
-            None => return,
-        };
-        requests.push((future, language_server_id, offset_encoding));
+        if let Some(future) = language_server.completion(doc.identifier(), pos, None) {
+            requests.push((future, language_server_id, offset_encoding));
+        }
     }
 
     for (future, language_server_id, offset_encoding) in requests {

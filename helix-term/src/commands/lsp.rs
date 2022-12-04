@@ -368,11 +368,9 @@ pub fn symbol_picker(cx: &mut Context) {
         doc.language_servers_with_feature(LanguageServerFeature::DocumentSymbols);
     let has_language_servers = !language_servers.is_empty();
     for ls in language_servers {
-        let future = match ls.document_symbols(doc.identifier()) {
-            Some(future) => future,
-            None => continue,
-        };
-        requests.push((future, ls.offset_encoding()));
+        if let Some(future) = ls.document_symbols(doc.identifier()) {
+            requests.push((future, ls.offset_encoding()));
+        }
     }
 
     if has_language_servers && requests.is_empty() {
@@ -429,11 +427,9 @@ pub fn workspace_symbol_picker(cx: &mut Context) {
         doc.language_servers_with_feature(LanguageServerFeature::WorkspaceSymbols);
     let has_language_servers = !language_servers.is_empty();
     for ls in language_servers {
-        let future = match ls.workspace_symbols("".to_string()) {
-            Some(future) => future,
-            None => continue,
+        if let Some(future) = ls.workspace_symbols("".to_string()) {
+            requests.push((future, ls.offset_encoding()));
         };
-        requests.push((future, ls.offset_encoding()));
     }
 
     if has_language_servers && requests.is_empty() {
@@ -586,29 +582,26 @@ pub fn code_action(cx: &mut Context) {
         let offset_encoding = language_server.offset_encoding();
         let range = range_to_lsp_range(doc.text(), selection_range, offset_encoding);
         let language_server_id = language_server.id();
-        let future = match language_server.code_actions(
-            doc.identifier(),
-            range,
-            // Filter and convert overlapping diagnostics
-            lsp::CodeActionContext {
-                diagnostics: doc
-                    .diagnostics()
-                    .iter()
-                    .filter(|&diag| {
-                        selection_range
-                            .overlaps(&helix_core::Range::new(diag.range.start, diag.range.end))
-                            && diag.language_server_id == language_server_id
-                    })
-                    .map(|diag| diagnostic_to_lsp_diagnostic(doc.text(), diag, offset_encoding))
-                    .collect(),
-                only: None,
-            },
-        ) {
-            Some(future) => future,
-            None => continue,
+        // Filter and convert overlapping diagnostics
+        let code_action_context = lsp::CodeActionContext {
+            diagnostics: doc
+                .diagnostics()
+                .iter()
+                .filter(|&diag| {
+                    selection_range
+                        .overlaps(&helix_core::Range::new(diag.range.start, diag.range.end))
+                        && diag.language_server_id == language_server_id
+                })
+                .map(|diag| diagnostic_to_lsp_diagnostic(doc.text(), diag, offset_encoding))
+                .collect(),
+            only: None,
         };
 
-        requests.push((future, offset_encoding, language_server_id));
+        if let Some(future) =
+            language_server.code_actions(doc.identifier(), range, code_action_context)
+        {
+            requests.push((future, offset_encoding, language_server_id));
+        }
     }
 
     if has_language_servers && requests.is_empty() {
