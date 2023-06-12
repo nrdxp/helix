@@ -3,6 +3,7 @@ pub(crate) mod lsp;
 pub(crate) mod typed;
 
 pub use dap::*;
+use helix_lsp::OffsetEncoding;
 use helix_vcs::Hunk;
 pub use lsp::*;
 use tokio::sync::oneshot;
@@ -56,12 +57,14 @@ use crate::{
     keymap::ReverseKeymap,
     ui::{
         self, editor::InsertEvent, lsp::SignatureHelp, overlay::overlaid, CompletionItem,
-        FilePicker, Picker, Popup, Prompt, PromptEvent,
+        CompletionItemSource, FilePicker, Picker, Popup, Prompt, PromptEvent,
     },
 };
 
 use crate::job::{self, Jobs};
-use futures_util::{stream::FuturesUnordered, StreamExt, TryStreamExt};
+use futures_util::{
+    future::BoxFuture, stream::FuturesUnordered, FutureExt, StreamExt, TryStreamExt,
+};
 use std::{collections::HashMap, fmt, future::Future};
 use std::{collections::HashSet, num::NonZeroUsize};
 
@@ -3316,7 +3319,7 @@ pub mod insert {
         use helix_lsp::lsp;
         // if ch matches completion char, trigger completion
         let doc = doc_mut!(cx.editor);
-        let trigger_completion = doc
+        let trigger_language_server_completion = doc
             .language_servers_with_feature(LanguageServerFeature::Completion)
             .any(|ls| {
                 // TODO: what if trigger is multiple chars long
@@ -3326,7 +3329,11 @@ pub mod insert {
                 }) if triggers.iter().any(|trigger| trigger.contains(ch)))
             });
 
-        if trigger_completion {
+        // TODO path for windows
+        let trigger_path_completion = ch == '/' && doc.supports_path_completion();
+
+        // TODO only trigger path completion *or* language server completion
+        if trigger_language_server_completion || trigger_path_completion {
             cx.editor.clear_idle_timer();
             super::completion(cx);
         }
@@ -4302,6 +4309,220 @@ fn remove_primary_selection(cx: &mut Context) {
     doc.set_selection(view.id, selection);
 }
 
+fn path_completion(
+    cursor: usize,
+    text: Rope,
+    doc: &Document,
+) -> Option<BoxFuture<'static, anyhow::Result<Vec<CompletionItem>>>> {
+    if !doc.supports_path_completion() {
+        return None;
+    }
+
+    use helix_lsp::{lsp, util::range_to_lsp_range};
+    // TODO find a good regex for most use cases (especially Windows, which is not yet covered...)
+    // currently only one path match per line is possible in unix
+    static PATH_REGEX: Lazy<Regex> = Lazy::new(|| Regex::new(r"((?:~)?(?:\.{0,2}/)+.*)$").unwrap());
+
+    let cur_line = text.char_to_line(cursor);
+    let begin_line = text.line_to_char(cur_line);
+    let line_until_cursor = text
+        .slice(begin_line..cursor)
+        .as_str()
+        .unwrap_or_default()
+        .to_owned();
+
+    let Some((dir_path, typed_file_name)) =
+        PATH_REGEX.find(&line_until_cursor).and_then(|matched_path| {
+            let matched_path = matched_path.as_str();
+
+            // resolve home dir (~/) on unix
+            #[cfg(unix)]
+            let mut path = {
+                static HOME_DIR: Lazy<Option<std::ffi::OsString>> = Lazy::new(|| std::env::var_os("HOME"));
+
+                PathBuf::from(match (matched_path.starts_with("~/"), &*HOME_DIR) {
+                    (true, Some(home)) => {
+                        let mut path = home.to_owned();
+                        path.push(&matched_path[1..]);
+                        path
+                    }
+                    _ => matched_path.into(),
+                })
+            };
+            #[cfg(not(unix))]
+            let mut path = PathBuf::from(matched_path);
+
+            if path.is_relative() {
+                if let Some(doc_path) = doc.path().and_then(|dp| dp.parent()) {
+                    path = doc_path.join(path);
+                } else if let Ok(work_dir) = std::env::current_dir() {
+                    path = work_dir.join(path);
+                }
+            }
+            let ends_with_slash = match matched_path.chars().last() {
+                Some('/') => true, // TODO support Windows
+                None => return None,
+                _ => false,
+            };
+            // check if there are chars after the last slash, and if these chars represent a directory
+            match std::fs::metadata(path.clone()).ok() {
+                Some(m) if m.is_dir() && ends_with_slash => {
+                    Some((PathBuf::from(path.as_path()), None))
+                }
+                _ if !ends_with_slash => path.parent().map(|parent_path| {
+                    (
+                        PathBuf::from(parent_path),
+                        path.file_name().and_then(|f| f.to_str().map(String::from)),
+                    )
+                }),
+                _ => None,
+            }
+        })
+    else {
+        return None;
+    };
+
+    // The async file accessor functions of tokio were considered, but they were a bit slower
+    // and less ergonomic than just using the std functions in a separate "thread"
+    let future = tokio::task::spawn_blocking(move || {
+        let Some(read_dir) = std::fs::read_dir(&dir_path).ok() else {
+            return Vec::new()
+        };
+
+        read_dir
+            .filter_map(|dir_entry| dir_entry.ok())
+            .filter_map(|dir_entry| {
+                let path = dir_entry.path();
+                // check if <chars> in <path>/<chars><cursor> matches the start of the filename
+                let filename_starts_with_prefix =
+                    match (path.file_name().and_then(|f| f.to_str()), &typed_file_name) {
+                        (Some(re_stem), Some(t)) => re_stem.starts_with(t),
+                        _ => true,
+                    };
+                if filename_starts_with_prefix {
+                    dir_entry.metadata().ok().map(|md| (path, md))
+                } else {
+                    None
+                }
+            })
+            .map(|(path, md)| {
+                let file_name = path
+                    .file_name()
+                    .unwrap_or_default()
+                    .to_string_lossy()
+                    .to_string();
+
+                let full_path = path.canonicalize().unwrap_or_default();
+                let full_path_name = full_path.to_string_lossy().into_owned();
+
+                let is_dir = full_path.is_dir();
+
+                let path_type = if md.is_symlink() {
+                    "link"
+                } else if is_dir {
+                    "folder"
+                } else {
+                    #[cfg(unix)]
+                    {
+                        use std::os::unix::fs::FileTypeExt;
+                        if md.file_type().is_block_device() {
+                            "block"
+                        } else if md.file_type().is_socket() {
+                            "socket"
+                        } else if md.file_type().is_char_device() {
+                            "character"
+                        } else if md.file_type().is_fifo() {
+                            "fifo"
+                        } else {
+                            "file"
+                        }
+                    }
+                    #[cfg(not(unix))]
+                    "file"
+                };
+
+                let resolved = if path_type == "link" { "resolved " } else { "" };
+
+                let documentation = Some(lsp::Documentation::MarkupContent(lsp::MarkupContent {
+                    kind: lsp::MarkupKind::Markdown,
+                    value: {
+                        #[cfg(unix)]
+                        {
+                            use std::os::unix::prelude::PermissionsExt;
+                            let mode = md.permissions().mode();
+
+                            let perms = [
+                                (libc::S_IRUSR, 'r'),
+                                (libc::S_IWUSR, 'w'),
+                                (libc::S_IXUSR, 'x'),
+                                (libc::S_IRGRP, 'r'),
+                                (libc::S_IWGRP, 'w'),
+                                (libc::S_IXGRP, 'x'),
+                                (libc::S_IROTH, 'r'),
+                                (libc::S_IWOTH, 'w'),
+                                (libc::S_IXOTH, 'x'),
+                            ]
+                            .iter()
+                            .fold(String::new(), |mut acc, (p, s)| {
+                                #[allow(clippy::unnecessary_cast)]
+                                acc.push(if mode & (*p as u32) > 0 { *s } else { '-' });
+                                acc
+                            });
+
+                            // TODO it would be great to be able to individually color the documentation,
+                            // but this will likely require a custom doc implementation (i.e. not `lsp::Documentation`)
+                            // and/or different rendering in completion.rs
+                            format!(
+                                "type: `{path_type}`\n\
+                             permissions: `[{perms}]`\n\
+                             {resolved}full path: `{full_path_name}`",
+                            )
+                        }
+                        #[cfg(not(unix))]
+                        {
+                            format!(
+                                "type: `{path_type}`\n\
+                             {resolved}full path: `{full_path_name}`",
+                            )
+                        }
+                    },
+                }));
+
+                let edit_diff = typed_file_name.as_ref().map(|f| f.len()).unwrap_or(0);
+
+                let text_edit = Some(lsp::CompletionTextEdit::Edit(lsp::TextEdit {
+                    range: range_to_lsp_range(
+                        &text,
+                        Range::new(cursor - edit_diff, cursor),
+                        OffsetEncoding::default(),
+                    ),
+                    new_text: file_name.clone(),
+                }));
+
+                let kind = Some(if is_dir {
+                    lsp::CompletionItemKind::FOLDER
+                } else {
+                    lsp::CompletionItemKind::FILE
+                });
+
+                CompletionItem {
+                    item: lsp::CompletionItem {
+                        label: file_name,
+                        documentation,
+                        kind,
+                        text_edit,
+                        ..Default::default()
+                    },
+                    source: CompletionItemSource::Path,
+                    resolved: true,
+                }
+            })
+            .collect::<Vec<_>>()
+    });
+
+    Some(async move { Ok(future.await?) }.boxed())
+}
+
 pub fn completion(cx: &mut Context) {
     use helix_lsp::{lsp, util::pos_to_lsp_pos};
 
@@ -4345,14 +4566,16 @@ pub fn completion(cx: &mut Context) {
                 .into_iter()
                 .map(|item| CompletionItem {
                     item,
-                    language_server_id,
+                    source: CompletionItemSource::LanguageServer(language_server_id),
                     resolved: false,
                 })
                 .collect();
 
                 anyhow::Ok(items)
             }
+            .boxed()
         })
+        .chain(path_completion(cursor, text.clone(), doc))
         .collect();
 
     // setup a channel that allows the request to be canceled
